@@ -1,0 +1,111 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>🕉️ Lord Ganesha Particle Art Visualizer</title>
+    <meta name="author" content="Wastav Nagture">
+    <meta name="description" content="A real-time particle art reconstruction and visualizer of Lord Ganesha with devotional background audio, built by Wastav Nagture.">
+    <meta name="theme-color" content="#050205">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Outfit:wght@300;400;600&family=Yatra+One&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Start / Audio Overlay for Browser Autoplay Policy -->
+    <div id="start-overlay" class="overlay">
+        <div class="start-card">
+            <div class="divine-symbol">🕉️</div>
+            <h1 class="start-title">श्री गणेशाय नमः</h1>
+            <p class="start-subtitle">Lord Ganesha Particle Visualizer</p>
+            <p class="start-desc">Immersive particle art reconstruction & devotional ambient experience</p>
+            <button id="start-btn" class="glow-btn">
+                <span class="btn-icon">✨</span> दर्शन प्रारंभ करें (Start)
+            </button>
+            <div class="author-tag">
+                Passionately built by <a href="https://wastavnagture97-pixel.github.io/" target="_blank">Wastav Nagture</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Canvas Viewports -->
+    <div class="canvas-container" id="canvas-container">
+        <canvas id="bg-canvas"></canvas>
+        <canvas id="art-canvas"></canvas>
+        <canvas id="particle-canvas"></canvas>
+    </div>
+
+    <!-- Floating Top Control Buttons -->
+    <div class="top-controls">
+        <button id="btn-sound" class="icon-btn" title="Toggle Audio (M)">
+            <svg id="icon-sound-on" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            </svg>
+            <svg id="icon-sound-off" class="hidden" viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+            </svg>
+        </button>
+        <button id="btn-fullscreen" class="icon-btn" title="Toggle Fullscreen (F)">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+            </svg>
+        </button>
+        <button id="btn-info" class="icon-btn" title="About & Credits (C)">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Bottom Subtle Signature Watermark -->
+    <div id="watermark-badge" class="watermark-badge" title="Click for developer info">
+        <span class="wm-sparkle">✨</span> Built by <strong>Wastav Nagture</strong> &nbsp;•&nbsp; <span class="badge-hint">[C] Info</span> &nbsp;•&nbsp; <span id="wm-audio-status" class="badge-hint">[M] Audio 🎵</span>
+    </div>
+
+    <!-- Secret Developer & Project Modal -->
+    <div id="info-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <button id="modal-close" class="modal-close-btn" title="Close (ESC)">✕</button>
+            <div class="modal-header">
+                <div class="modal-om">🕉️</div>
+                <h2>GANESHA VISUALIZER</h2>
+                <p class="modal-tagline">Particle Art Reconstruction & Ambient Physics</p>
+            </div>
+            <div class="modal-divider"></div>
+            <div class="modal-body">
+                <p class="author-highlight">Passionately built by <strong>Wastav Nagture</strong></p>
+                <div class="info-links">
+                    <a href="https://wastavnagture97-pixel.github.io/" target="_blank" class="info-link portfolio-link">
+                        🌐 Portfolio: wastavnagture97-pixel.github.io
+                    </a>
+                    <a href="https://github.com/wastavnagture97-pixel" target="_blank" class="info-link github-link">
+                        💻 GitHub: @wastavnagture97-pixel
+                    </a>
+                </div>
+                <div class="audio-info">
+                    🎵 <strong>Audio:</strong> Gajanana | Bajirao Mastani (Sukhwinder Singh)
+                </div>
+                <div class="shortcuts-grid">
+                    <div class="shortcut-item"><kbd>C</kbd> / <kbd>I</kbd> About Info</div>
+                    <div class="shortcut-item"><kbd>M</kbd> Mute / Unmute</div>
+                    <div class="shortcut-item"><kbd>F</kbd> Fullscreen</div>
+                    <div class="shortcut-item"><kbd>ESC</kbd> Close Dialog</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden Audio Element -->
+    <audio id="bg-audio" loop preload="auto">
+        <source src="audio.mp3" type="audio/mpeg">
+        <source src="audio.wav" type="audio/wav">
+        <source src="audio.m4a" type="audio/mp4">
+    </audio>
+
+    <script src="script.js"></script>
+</body>
+</html>
