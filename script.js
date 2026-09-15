@@ -316,37 +316,41 @@ let fps = 60; // target FPS
 
         let artDirty = false;
 
-        // Phase 1 Spawning: Gold Outlines — direct top-to-target, no floor bounce
+        // Phase 1 Spawning: Gold Outlines (fall → floor → rise)
         if (phase === 1) {
-            // Dump ALL remaining outlines in one shot each frame — no cap needed
-            const spawnCount = outlineTargets.length;
-            for (let i = 0; i < spawnCount; i++) {
-                const t = outlineTargets.pop();
-                // Write directly to artBuf32 — instant placement, no flying
-                const tx = t.x, ty = t.y;
-                if (ty >= 0 && ty < height && tx >= 0 && tx < width) {
-                    artBuf32[ty * width + tx] = GOLD_ABGR;
-                    if (tx + 1 < width) artBuf32[ty * width + tx + 1] = GOLD_ABGR;
+            if (activeParticles.length < 4000) {
+                const spawnCount = Math.min(3000, outlineTargets.length);
+                for (let i = 0; i < spawnCount; i++) {
+                    const t = outlineTargets.pop();
+                    activeParticles.push({
+                        type: 1,
+                        x: t.x,
+                        y: -(Math.random() * 80 + 10),
+                        targetX: t.x,
+                        targetY: t.y,
+                        speed: 15 + Math.random() * 12,
+                        state: 0  // 0: falling, 1: rising
+                    });
                 }
             }
-            if (outlineTargets.length === 0) {
-                artCtx.putImageData(artImageData, 0, 0);
+            if (outlineTargets.length === 0 && activeParticles.length === 0) {
                 phase = 2;
             }
         }
-        // Phase 2 Spawning: Full-Color Image Tiles — direct placement in large batches
+        // Phase 2 Spawning: Full-Color Tiles (fall → floor → rise)
         else if (phase === 2) {
-            if (activeParticles.length < 12000) {
-                // Spawn a HUGE batch every frame
-                const batchSize = Math.min(Math.max(5000, Math.floor((width * height) / 20000)), revealTargets.length);
+            if (activeParticles.length < 4000) {
+                const batchSize = Math.min(3000, revealTargets.length);
                 for (let i = 0; i < batchSize; i++) {
                     const t = revealTargets.pop();
                     activeParticles.push({
                         type: 2,
-                        y: t.y - Math.random() * 120 - 20, // start just above target
+                        x: t.x,
+                        y: -(Math.random() * 80 + 10),
                         targetX: t.x,
                         targetY: t.y,
-                        speed: 28.0 + Math.random() * 28.0  // very fast
+                        speed: 15 + Math.random() * 12,
+                        state: 0  // 0: falling, 1: rising
                     });
                 }
             }
@@ -358,7 +362,7 @@ let fps = 60; // target FPS
             }
         }
 
-        // In-place Zero-Allocation Particle Update Loop (O(1) swap-and-pop)
+        // Particle Update Loop — fall to floor, then rise to target
         let count = activeParticles.length;
         const w = width;
         const h = height;
@@ -366,51 +370,88 @@ let fps = 60; // target FPS
         for (let i = 0; i < count; i++) {
             const p = activeParticles[i];
 
-            // Move downward toward target
-            p.y += p.speed;
-
-            if (p.y >= p.targetY) {
-                // Reached destination — write permanently to artBuf32
-                const tx = p.targetX;
-                const ty = p.targetY;
-                if (ty >= 0 && ty < h && tx >= 0 && tx < w && sourceBuf32) {
-                    const targetIdx = ty * w + tx;
-                    const col = sourceBuf32[targetIdx];
-                    artBuf32[targetIdx] = col;
-                    if (tx + 1 < w) artBuf32[targetIdx + 1] = col;
-                    if (ty + 1 < h) {
-                        artBuf32[targetIdx + w] = col;
-                        if (tx + 1 < w) artBuf32[targetIdx + w + 1] = col;
-                    }
+            if (p.state === 0) {
+                // Falling down to floor
+                p.y += p.speed * 2.5;
+                if (p.y >= h) {
+                    p.y = h;
+                    p.state = 1; // switch to rising
                 }
-                artDirty = true;
 
-                // O(1) remove
-                activeParticles[i] = activeParticles[count - 1];
-                activeParticles.pop();
-                count--;
-                i--;
-            } else {
-                // Still falling — render in motion
+                // Render during fall
                 const py = p.y | 0;
                 const px = p.targetX;
-                if (py >= 0 && py < h && px >= 0 && px < w && sourceBuf32) {
-                    const col = sourceBuf32[p.targetY * w + px];
-                    const drawIdx = py * w + px;
-                    particleBuf32[drawIdx] = col;
-                    if (px + 1 < w) particleBuf32[drawIdx + 1] = col;
-                    if (py + 1 < h) {
-                        particleBuf32[drawIdx + w] = col;
-                        if (px + 1 < w) particleBuf32[drawIdx + w + 1] = col;
+                if (py >= 0 && py < h && px >= 0 && px < w) {
+                    if (p.type === 1) {
+                        particleBuf32[py * w + px] = GOLD_ABGR;
+                        if (px + 1 < w) particleBuf32[py * w + px + 1] = GOLD_ABGR;
+                    } else if (sourceBuf32) {
+                        const col = sourceBuf32[p.targetY * w + px];
+                        const drawIdx = py * w + px;
+                        particleBuf32[drawIdx] = col;
+                        if (px + 1 < w) particleBuf32[drawIdx + 1] = col;
+                        if (py + 1 < h) {
+                            particleBuf32[drawIdx + w] = col;
+                            if (px + 1 < w) particleBuf32[drawIdx + w + 1] = col;
+                        }
+                    }
+                }
+
+            } else {
+                // Rising up to target
+                p.y -= p.speed;
+                if (p.y <= p.targetY) {
+                    // Reached target — paint permanently
+                    const tx = p.targetX;
+                    const ty = p.targetY;
+                    if (ty >= 0 && ty < h && tx >= 0 && tx < w) {
+                        if (p.type === 1) {
+                            artBuf32[ty * w + tx] = GOLD_ABGR;
+                            if (tx + 1 < w) artBuf32[ty * w + tx + 1] = GOLD_ABGR;
+                        } else if (sourceBuf32) {
+                            const targetIdx = ty * w + tx;
+                            const col = sourceBuf32[targetIdx];
+                            artBuf32[targetIdx] = col;
+                            if (tx + 1 < w) artBuf32[targetIdx + 1] = col;
+                            if (ty + 1 < h) {
+                                artBuf32[targetIdx + w] = col;
+                                if (tx + 1 < w) artBuf32[targetIdx + w + 1] = col;
+                            }
+                        }
+                        artDirty = true;
+                    }
+                    // Remove particle (O(1) swap-and-pop)
+                    activeParticles[i] = activeParticles[count - 1];
+                    activeParticles.pop();
+                    count--;
+                    i--;
+                } else {
+                    // Still rising — render in motion
+                    const py = p.y | 0;
+                    const px = p.targetX;
+                    if (py >= 0 && py < h && px >= 0 && px < w) {
+                        if (p.type === 1) {
+                            particleBuf32[py * w + px] = GOLD_ABGR;
+                            if (px + 1 < w) particleBuf32[py * w + px + 1] = GOLD_ABGR;
+                        } else if (sourceBuf32) {
+                            const col = sourceBuf32[p.targetY * w + px];
+                            const drawIdx = py * w + px;
+                            particleBuf32[drawIdx] = col;
+                            if (px + 1 < w) particleBuf32[drawIdx + 1] = col;
+                            if (py + 1 < h) {
+                                particleBuf32[drawIdx + w] = col;
+                                if (px + 1 < w) particleBuf32[drawIdx + w + 1] = col;
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Single instant draw call for all flying particles
+        // Single draw call for all flying particles
         particleCtx.putImageData(particleImageData, 0, 0);
 
-        // Update permanent art canvas when new particles land
+        // Update art canvas when particles land
         if (artDirty && phase < 3) {
             artCtx.putImageData(artImageData, 0, 0);
         }
