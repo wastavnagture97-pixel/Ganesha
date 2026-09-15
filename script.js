@@ -1,6 +1,6 @@
-﻿/**
+/**
  * 🕉️ Lord Ganesha Particle Art Visualizer
- * Web Edition for GitHub Pages
+ * High-Performance Web Edition for GitHub Pages
  * 
  * Author: Wastav Nagture
  * Portfolio: https://wastavnagture97-pixel.github.io/
@@ -15,9 +15,9 @@
     const artCanvas = document.getElementById('art-canvas');
     const particleCanvas = document.getElementById('particle-canvas');
 
-    const bgCtx = bgCanvas.getContext('2d');
-    const artCtx = artCanvas.getContext('2d');
-    const particleCtx = particleCanvas.getContext('2d');
+    const bgCtx = bgCanvas.getContext('2d', { alpha: false });
+    const artCtx = artCanvas.getContext('2d', { willReadFrequently: true });
+    const particleCtx = particleCanvas.getContext('2d', { willReadFrequently: true });
 
     // UI Elements
     const startOverlay = document.getElementById('start-overlay');
@@ -38,7 +38,18 @@
     let isMuted = false;
     let isRunning = false;
     let phase = 1; // 1: Outline assembly, 2: Tile color fill, 3: Full glory with Diyas
-    let lastTime = 0;
+let lastFrameTime = 0;
+let fps = 60; // target FPS
+
+    // High-Performance Direct Pixel Buffers (TypedArrays)
+    let particleImageData = null;
+    let particleBuf32 = null;
+
+    let artImageData = null;
+    let artBuf32 = null;
+
+    let sourceImageData = null;
+    let sourceBuf32 = null;
 
     // Simulation Data
     let outlineTargets = [];
@@ -46,9 +57,9 @@
     let flameCenters = [];
     let activeParticles = [];
     let bgParticles = [];
-    let revealColorCanvas = null;
 
     const TILE_SIZE = 2;
+    const GOLD_ABGR = 0xFF00D7FF; // 0xAABBGGRR: Alpha 255, Blue 0, Green 215, Red 255
 
     // Pre-generated Flower & Glitter Sprites
     const flowerSprites = [];
@@ -128,31 +139,33 @@
         offCanvas.height = screenH;
         const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
 
-        // Maintain center crop / fill
+        // Maintain center crop / cover
         const imgAspect = img.width / img.height;
         const screenAspect = screenW / screenH;
         let drawW, drawH, drawX, drawY;
 
         if (screenAspect > imgAspect) {
             drawW = screenW;
-            drawH = screenW / imgAspect;
+            drawH = Math.round(screenW / imgAspect);
             drawX = 0;
-            drawY = (screenH - drawH) / 2;
+            drawY = Math.round((screenH - drawH) / 2);
         } else {
             drawH = screenH;
-            drawW = screenH * imgAspect;
-            drawX = (screenW - drawW) / 2;
+            drawW = Math.round(screenH * imgAspect);
+            drawX = Math.round((screenW - drawW) / 2);
             drawY = 0;
         }
 
         offCtx.drawImage(img, drawX, drawY, drawW, drawH);
-        const imgData = offCtx.getImageData(0, 0, screenW, screenH);
-        const data = imgData.data;
+        sourceImageData = offCtx.getImageData(0, 0, screenW, screenH);
+        sourceBuf32 = new Uint32Array(sourceImageData.data.buffer);
 
-        // Grayscale conversion
+        const data = sourceImageData.data;
+
+        // Grayscale conversion for edge detection
         const gray = new Uint8Array(screenW * screenH);
         for (let i = 0; i < data.length; i += 4) {
-            gray[i / 4] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            gray[i >> 2] = (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]) | 0;
         }
 
         // Sobel Edge Filter
@@ -160,26 +173,28 @@
         const threshold = 38;
 
         for (let y = 1; y < screenH - 1; y += 1) {
-            for (let x = 1; x < screenW - 1; x += 1) {
-                const idx = y * screenW + x;
+            const rowOffset = y * screenW;
+            const topOffset = (y - 1) * screenW;
+            const botOffset = (y + 1) * screenW;
 
+            for (let x = 1; x < screenW - 1; x += 1) {
                 const gx =
-                    -gray[idx - screenW - 1] + gray[idx - screenW + 1] +
-                    -2 * gray[idx - 1]       + 2 * gray[idx + 1] +
-                    -gray[idx + screenW - 1] + gray[idx + screenW + 1];
+                    -gray[topOffset + x - 1] + gray[topOffset + x + 1] +
+                    -2 * gray[rowOffset + x - 1] + 2 * gray[rowOffset + x + 1] +
+                    -gray[botOffset + x - 1] + gray[botOffset + x + 1];
 
                 const gy =
-                    -gray[idx - screenW - 1] - 2 * gray[idx - screenW] - gray[idx - screenW + 1] +
-                     gray[idx + screenW - 1] + 2 * gray[idx + screenW] + gray[idx + screenW + 1];
+                    -gray[topOffset + x - 1] - 2 * gray[topOffset + x] - gray[topOffset + x + 1] +
+                     gray[botOffset + x - 1] + 2 * gray[botOffset + x] + gray[botOffset + x + 1];
 
-                const mag = Math.sqrt(gx * gx + gy * gy);
+                const mag = Math.hypot(gx, gy);
                 if (mag > threshold) {
                     outlines.push({ x, y });
                 }
             }
         }
 
-        // Tile Reveal Targets
+        // Tile Reveal Targets (2x2 blocks)
         const reveals = [];
         for (let y = 0; y < screenH; y += TILE_SIZE) {
             for (let x = 0; x < screenW; x += TILE_SIZE) {
@@ -187,26 +202,29 @@
             }
         }
 
-        // Bottom targets pop first
+        // Sort ascending so bottom targets (.pop()) are reconstructed first
         outlines.sort((a, b) => a.y - b.y);
         reveals.sort((a, b) => a.y - b.y);
 
-        // Flame coordinates
+        // Flame coordinates aligned with drawn image
         const flameRatios = [
             [0.244, 0.548], [0.287, 0.525], [0.332, 0.548],
             [0.668, 0.548], [0.713, 0.525], [0.756, 0.548]
         ];
         const flames = flameRatios.map(([rx, ry]) => ({
-            x: Math.round(screenW * rx),
-            y: Math.round(screenH * ry)
+            x: Math.round(drawX + drawW * rx),
+            y: Math.round(drawY + drawH * ry)
         }));
 
-        return {
-            revealCanvas: offCanvas,
-            outlines,
-            reveals,
-            flames
-        };
+        return { outlines, reveals, flames };
+    }
+
+    function initPixelBuffers() {
+        particleImageData = particleCtx.createImageData(width, height);
+        particleBuf32 = new Uint32Array(particleImageData.data.buffer);
+
+        artImageData = artCtx.createImageData(width, height);
+        artBuf32 = new Uint32Array(artImageData.data.buffer);
     }
 
     function resize() {
@@ -218,13 +236,15 @@
             c.height = height;
         });
 
+        initPixelBuffers();
+
         if (window.sourceImg && window.sourceImg.complete) {
             const data = analyzeImage(window.sourceImg, width, height);
-            revealColorCanvas = data.revealCanvas;
             outlineTargets = data.outlines;
             revealTargets = data.reveals;
             flameCenters = data.flames;
             activeParticles = [];
+            bgParticles = [];
             phase = 1;
             artCtx.clearRect(0, 0, width, height);
         }
@@ -250,7 +270,8 @@
 
     // Diya Flame Glows (Phase 3)
     function drawFlames(ctx, time) {
-        flameCenters.forEach((center, i) => {
+        for (let i = 0; i < flameCenters.length; i++) {
+            const center = flameCenters[i];
             const pulse = Math.sin(time * 0.009 + i);
             const radius = Math.max(6, 12 + pulse * 5);
             const alpha = 0.65 + pulse * 0.25;
@@ -268,127 +289,133 @@
             ctx.arc(shakeX, shakeY, radius * 2.2, 0, Math.PI * 2);
             ctx.fillStyle = grad;
             ctx.fill();
-        });
+        }
     }
 
-    // Main Animation Frame
+    // Main Ultra-High-Performance Animation Loop
     function update(timestamp) {
         if (!isRunning) return;
 
+        // Frame timing and FPS calculation
+        const now = timestamp;
+        const delta = now - (lastFrameTime || now);
+        fps = 1000 / delta;
+        lastFrameTime = now;
+
+        // Background layer
         bgCtx.fillStyle = '#050205';
         bgCtx.fillRect(0, 0, width, height);
 
-        particleCtx.clearRect(0, 0, width, height);
-
-        // Phase 1 Aura
         if (phase === 1) {
             drawPastelAura(bgCtx, timestamp);
         }
 
-        // Update Active Particles
-        const surviving = [];
-        for (let i = 0; i < activeParticles.length; i++) {
-            const p = activeParticles[i];
+        // Fast zero-fill active particle buffer
+        // Fast zero-fill active particle buffer
+        particleBuf32.fill(0);
 
-            if (p.state === 'falling') {
-                p.y += p.speed * 2;
-                if (p.y >= height) {
-                    p.y = height;
-                    p.state = 'rising';
-                }
+        let artDirty = false;
 
-                // Render falling particle
-                if (p.type === 'tile') {
-                    if (revealColorCanvas) {
-                        particleCtx.drawImage(
-                            revealColorCanvas,
-                            p.targetX, p.targetY, TILE_SIZE, TILE_SIZE,
-                            p.x, Math.floor(p.y), TILE_SIZE, TILE_SIZE
-                        );
-                    }
-                } else if (p.type === 'outline') {
-                    particleCtx.fillStyle = '#ffd700';
-                    particleCtx.fillRect(p.targetX, Math.floor(p.y), 1.5, 1.5);
-                }
-                surviving.push(p);
-            } else if (p.state === 'rising') {
-                p.y -= p.speed;
-                if (p.y <= p.targetY) {
-                    // Lock permanently into artCanvas
-                    if (p.type === 'tile') {
-                        if (revealColorCanvas) {
-                            artCtx.drawImage(
-                                revealColorCanvas,
-                                p.targetX, p.targetY, TILE_SIZE, TILE_SIZE,
-                                p.targetX, p.targetY, TILE_SIZE, TILE_SIZE
-                            );
-                        }
-                    } else if (p.type === 'outline') {
-                        artCtx.fillStyle = '#ffd700';
-                        artCtx.fillRect(p.targetX, p.targetY, 1.5, 1.5);
-                    }
-                } else {
-                    // Still rising
-                    if (p.type === 'tile') {
-                        if (revealColorCanvas) {
-                            particleCtx.drawImage(
-                                revealColorCanvas,
-                                p.targetX, p.targetY, TILE_SIZE, TILE_SIZE,
-                                p.x, Math.floor(p.y), TILE_SIZE, TILE_SIZE
-                            );
-                        }
-                    } else if (p.type === 'outline') {
-                        particleCtx.fillStyle = '#ffd700';
-                        particleCtx.fillRect(p.targetX, Math.floor(p.y), 1.5, 1.5);
-                    }
-                    surviving.push(p);
-                }
-            }
-        }
-        activeParticles = surviving;
-
-        // Spawn Phase 1 (Outline Assembly) - 1.5x speed (1200 particles/batch)
+        // Phase 1 Spawning: Gold Outlines — direct top-to-target, no floor bounce
         if (phase === 1) {
-            for (let i = 0; i < 1200; i++) {
-                if (outlineTargets.length > 0) {
-                    const t = outlineTargets.pop();
-                    activeParticles.push({
-                        type: 'outline',
-                        x: t.x,
-                        y: Math.random() * -150 - 10,
-                        targetX: t.x,
-                        targetY: t.y,
-                        speed: 6.0 + Math.random() * 7.5,
-                        state: 'falling'
-                    });
+            // Dump ALL remaining outlines in one shot each frame — no cap needed
+            const spawnCount = outlineTargets.length;
+            for (let i = 0; i < spawnCount; i++) {
+                const t = outlineTargets.pop();
+                // Write directly to artBuf32 — instant placement, no flying
+                const tx = t.x, ty = t.y;
+                if (ty >= 0 && ty < height && tx >= 0 && tx < width) {
+                    artBuf32[ty * width + tx] = GOLD_ABGR;
+                    if (tx + 1 < width) artBuf32[ty * width + tx + 1] = GOLD_ABGR;
                 }
             }
-            if (outlineTargets.length === 0 && activeParticles.length === 0) {
+            if (outlineTargets.length === 0) {
+                artCtx.putImageData(artImageData, 0, 0);
                 phase = 2;
             }
         }
-        // Spawn Phase 2 (Tile Color Reveal) - 1.5x speed (900 particles/batch)
+        // Phase 2 Spawning: Full-Color Image Tiles — direct placement in large batches
         else if (phase === 2) {
-            for (let i = 0; i < 900; i++) {
-                if (revealTargets.length > 0) {
+            if (activeParticles.length < 12000) {
+                // Spawn a HUGE batch every frame
+                const batchSize = Math.min(Math.max(5000, Math.floor((width * height) / 20000)), revealTargets.length);
+                for (let i = 0; i < batchSize; i++) {
                     const t = revealTargets.pop();
                     activeParticles.push({
-                        type: 'tile',
-                        x: t.x,
-                        y: Math.random() * -250 - 10,
+                        type: 2,
+                        y: t.y - Math.random() * 120 - 20, // start just above target
                         targetX: t.x,
                         targetY: t.y,
-                        speed: 6.0 + Math.random() * 9.0,
-                        state: 'falling'
+                        speed: 28.0 + Math.random() * 28.0  // very fast
                     });
                 }
             }
             if (revealTargets.length === 0 && activeParticles.length === 0) {
                 phase = 3;
+                if (sourceImageData) {
+                    artCtx.putImageData(sourceImageData, 0, 0);
+                }
             }
         }
 
-        // Phase 3 Flame Glows
+        // In-place Zero-Allocation Particle Update Loop (O(1) swap-and-pop)
+        let count = activeParticles.length;
+        const w = width;
+        const h = height;
+
+        for (let i = 0; i < count; i++) {
+            const p = activeParticles[i];
+
+            // Move downward toward target
+            p.y += p.speed;
+
+            if (p.y >= p.targetY) {
+                // Reached destination — write permanently to artBuf32
+                const tx = p.targetX;
+                const ty = p.targetY;
+                if (ty >= 0 && ty < h && tx >= 0 && tx < w && sourceBuf32) {
+                    const targetIdx = ty * w + tx;
+                    const col = sourceBuf32[targetIdx];
+                    artBuf32[targetIdx] = col;
+                    if (tx + 1 < w) artBuf32[targetIdx + 1] = col;
+                    if (ty + 1 < h) {
+                        artBuf32[targetIdx + w] = col;
+                        if (tx + 1 < w) artBuf32[targetIdx + w + 1] = col;
+                    }
+                }
+                artDirty = true;
+
+                // O(1) remove
+                activeParticles[i] = activeParticles[count - 1];
+                activeParticles.pop();
+                count--;
+                i--;
+            } else {
+                // Still falling — render in motion
+                const py = p.y | 0;
+                const px = p.targetX;
+                if (py >= 0 && py < h && px >= 0 && px < w && sourceBuf32) {
+                    const col = sourceBuf32[p.targetY * w + px];
+                    const drawIdx = py * w + px;
+                    particleBuf32[drawIdx] = col;
+                    if (px + 1 < w) particleBuf32[drawIdx + 1] = col;
+                    if (py + 1 < h) {
+                        particleBuf32[drawIdx + w] = col;
+                        if (px + 1 < w) particleBuf32[drawIdx + w + 1] = col;
+                    }
+                }
+            }
+        }
+
+        // Single instant draw call for all flying particles
+        particleCtx.putImageData(particleImageData, 0, 0);
+
+        // Update permanent art canvas when new particles land
+        if (artDirty && phase < 3) {
+            artCtx.putImageData(artImageData, 0, 0);
+        }
+
+        // Phase 3: Divine Diya Flame Glows
         if (phase >= 3) {
             drawFlames(particleCtx, timestamp);
         }
@@ -411,18 +438,21 @@
             });
         }
 
-        const survivingBg = [];
-        for (let i = 0; i < bgParticles.length; i++) {
+        let bgCount = bgParticles.length;
+        for (let i = 0; i < bgCount; i++) {
             const p = bgParticles[i];
             p.y += p.speedY;
             const drawX = p.x + Math.sin(timestamp * p.wobbleSpeed + p.wobbleOffset) * p.wobbleWidth * 20;
 
             if (p.y < height + 30) {
                 particleCtx.drawImage(p.sprite, Math.floor(drawX), Math.floor(p.y));
-                survivingBg.push(p);
+            } else {
+                bgParticles[i] = bgParticles[bgCount - 1];
+                bgParticles.pop();
+                bgCount--;
+                i--;
             }
         }
-        bgParticles = survivingBg;
 
         requestAnimationFrame(update);
     }

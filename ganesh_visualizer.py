@@ -333,90 +333,86 @@ def main():
 
         screen.blit(fill_surface, (0, 0))
 
-        surviving_particles = []
-        for p in active_particles:
-            if p["state"] == "falling":
-                p["y"] += p["speed"] * 2  # Fall to floor quickly
-                if p["y"] >= HEIGHT:
-                    p["y"] = HEIGHT
-                    p["state"] = "rising"
-
-                # Render during initial fall
-                if p["type"] == "tile":
-                    rect = (p["target_x"], p["target_y"], TILE_SIZE, TILE_SIZE)
-                    screen.blit(reveal_color_surface, (p["x"], int(p["y"])), rect)
-                elif p["type"] == "outline":
-                    sprite = p["sprite"]
-                    sprite_rect = sprite.get_rect(center=(p["target_x"], int(p["y"])))
-                    screen.blit(sprite, sprite_rect)
-                surviving_particles.append(p)
-
-            elif p["state"] == "rising":
-                p["y"] -= p["speed"]  # Move up to target position
-                if p["y"] <= p["target_y"]:
-                    # Reached target
-                    if p["type"] == "tile":
-                        rect = (p["target_x"], p["target_y"], TILE_SIZE, TILE_SIZE)
-                        fill_surface.blit(
-                            reveal_color_surface, (p["target_x"], p["target_y"]), rect
-                        )
-                    elif p["type"] == "outline":
-                        sprite = p["sprite"]
-                        target_rect = sprite.get_rect(
-                            center=(p["target_x"], p["target_y"])
-                        )
-                        outline_surface.blit(sprite, target_rect)
-                else:
-                    # Still rising
-                    if p["type"] == "tile":
-                        rect = (p["target_x"], p["target_y"], TILE_SIZE, TILE_SIZE)
-                        screen.blit(reveal_color_surface, (p["x"], int(p["y"])), rect)
-                    elif p["type"] == "outline":
-                        sprite = p["sprite"]
-                        sprite_rect = sprite.get_rect(
-                            center=(p["target_x"], int(p["y"]))
-                        )
-                        screen.blit(sprite, sprite_rect)
-                    surviving_particles.append(p)
-
-        active_particles = surviving_particles
-
+        # --- Phase 1: Gold Outline particles (fall → floor → rise to target) ---
         if phase == 1:
-            for _ in range(1200):
-                if outline_targets:
+            if len(active_particles) < 4000:
+                spawn_count = min(3000, len(outline_targets))
+                for _ in range(spawn_count):
                     t = outline_targets.pop()
                     active_particles.append(
                         {
                             "type": "outline",
                             "sprite": spr_outline_gold,
                             "x": t["x"],
-                            "y": random.randint(-150, -10),
+                            "y": random.randint(-80, -10),
                             "target_x": t["x"],
                             "target_y": t["y"],
-                            "speed": random.uniform(6.0, 13.5),
+                            "speed": random.uniform(15.0, 27.0),
                             "state": "falling",
                         }
                     )
             if not outline_targets and len(active_particles) == 0:
                 phase = 2
 
+        # --- Phase 2: Color tile particles (fall → floor → rise to target) ---
         elif phase == 2:
-            for _ in range(900):
-                if reveal_targets:
+            if len(active_particles) < 4000:
+                spawn_count = min(3000, len(reveal_targets))
+                for _ in range(spawn_count):
                     t = reveal_targets.pop()
                     active_particles.append(
                         {
                             "type": "tile",
                             "x": t["x"],
-                            "y": random.randint(-250, -10),
+                            "y": random.randint(-80, -10),
                             "target_x": t["x"],
                             "target_y": t["y"],
-                            "speed": random.uniform(6.0, 15.0),
+                            "speed": random.uniform(15.0, 27.0),
                             "state": "falling",
                         }
                     )
             if not reveal_targets and len(active_particles) == 0:
                 phase = 3
+
+        # --- Particle update: fall to floor, then rise to target ---
+        surviving_particles = []
+        for p in active_particles:
+            if p["state"] == "falling":
+                p["y"] += p["speed"] * 2.5
+                if p["y"] >= HEIGHT:
+                    p["y"] = HEIGHT
+                    p["state"] = "rising"
+
+                # Render during fall
+                if p["type"] == "tile":
+                    rect = (p["target_x"], p["target_y"], TILE_SIZE, TILE_SIZE)
+                    screen.blit(reveal_color_surface, (p["x"], int(p["y"])), rect)
+                elif p["type"] == "outline":
+                    sprite_rect = p["sprite"].get_rect(center=(p["target_x"], int(p["y"])))
+                    screen.blit(p["sprite"], sprite_rect)
+                surviving_particles.append(p)
+
+            elif p["state"] == "rising":
+                p["y"] -= p["speed"]
+                if p["y"] <= p["target_y"]:
+                    # Reached target — paint permanently
+                    if p["type"] == "tile":
+                        rect = (p["target_x"], p["target_y"], TILE_SIZE, TILE_SIZE)
+                        fill_surface.blit(reveal_color_surface, (p["target_x"], p["target_y"]), rect)
+                    elif p["type"] == "outline":
+                        target_rect = p["sprite"].get_rect(center=(p["target_x"], p["target_y"]))
+                        outline_surface.blit(p["sprite"], target_rect)
+                else:
+                    # Still rising — render in motion
+                    if p["type"] == "tile":
+                        rect = (p["target_x"], p["target_y"], TILE_SIZE, TILE_SIZE)
+                        screen.blit(reveal_color_surface, (p["x"], int(p["y"])), rect)
+                    elif p["type"] == "outline":
+                        sprite_rect = p["sprite"].get_rect(center=(p["target_x"], int(p["y"])))
+                        screen.blit(p["sprite"], sprite_rect)
+                    surviving_particles.append(p)
+
+        active_particles = surviving_particles
 
         if phase >= 3:
             for i, center in enumerate(flame_centers):
